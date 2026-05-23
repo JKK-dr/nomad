@@ -1,4 +1,3 @@
-import wandb
 import os
 import numpy as np
 from typing import List, Optional, Dict
@@ -16,6 +15,7 @@ from torchvision import transforms
 
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
+from vint_train.wandb_utils import wandb
 
 def train_eval_loop(
     train_model: bool,

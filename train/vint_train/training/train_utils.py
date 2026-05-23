@@ -1,4 +1,3 @@
-import wandb
 import os
 import numpy as np
 import yaml
@@ -23,6 +22,7 @@ from torch.optim import Adam
 from torchvision import transforms
 import torchvision.transforms.functional as TF
 import matplotlib.pyplot as plt
+from vint_train.wandb_utils import wandb
 
 # LOAD DATA CONFIG
 with open(os.path.join(os.path.dirname(__file__), "../data/data_config.yaml"), "r") as f:

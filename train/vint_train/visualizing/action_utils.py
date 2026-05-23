@@ -3,10 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from typing import Optional, List
-import wandb
 import yaml
 import torch
 import torch.nn as nn
+from vint_train.wandb_utils import wandb
 from vint_train.visualizing.visualize_utils import (
     to_numpy,
     numpy_to_img,

@@ -1,5 +1,4 @@
 import os
-import wandb
 import argparse
 import numpy as np
 import yaml
@@ -35,6 +34,7 @@ from vint_train.training.train_eval_loop import (
     train_eval_loop_nomad,
     load_model,
 )
+from vint_train.wandb_utils import wandb
 
 TRAIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
