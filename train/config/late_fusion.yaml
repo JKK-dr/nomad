@@ -2,7 +2,7 @@ project_name: vint-release
 run_name: vint-late-fusion
 
 # training setup
-use_wandb: True # set to false if you don't want to log to wandb
+use_wandb: False # set to true if you want to log to wandb
 train: True
 batch_size: 256
 epochs: 100

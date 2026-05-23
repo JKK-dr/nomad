@@ -4,7 +4,7 @@ project_name: vint-release
 run_name: gnm
 
 # training setup
-use_wandb: True # set to false if you don't want to log to wandb
+use_wandb: False # set to true if you want to log to wandb
 train: True
 batch_size: 400
 eval_batch_size: 400

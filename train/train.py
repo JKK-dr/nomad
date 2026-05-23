@@ -595,7 +595,6 @@ if __name__ == "__main__":
             wandb.config.update(config)
     else:
         os.environ.setdefault("WANDB_MODE", "disabled")
-        wandb.init(mode="disabled")
 
     print(config)
     main(config)
