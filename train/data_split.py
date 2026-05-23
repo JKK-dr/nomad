@@ -17,6 +17,9 @@ def remove_files_in_dir(dir_path: str):
 
 
 def main(args: argparse.Namespace):
+    args.data_dir = os.path.expanduser(args.data_dir)
+    args.data_splits_dir = os.path.expanduser(args.data_splits_dir)
+
     # Get the names of the folders in the data directory that contain the file 'traj_data.pkl'
     folder_names = [
         f

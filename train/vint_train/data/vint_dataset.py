@@ -62,11 +62,11 @@ class ViNT_Dataset(Dataset):
             normalize (bool): Whether to normalize the distances or actions
             goal_type (str): What data type to use for the goal. The only one supported is "image" for now.
         """
-        self.data_folder = data_folder
-        self.data_split_folder = data_split_folder
+        self.data_folder = os.path.expanduser(data_folder)
+        self.data_split_folder = os.path.expanduser(data_split_folder)
         self.dataset_name = dataset_name
         
-        traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
+        traj_names_file = os.path.join(self.data_split_folder, "traj_names.txt")
         with open(traj_names_file, "r") as f:
             file_lines = f.read()
             self.traj_names = file_lines.split("\n")

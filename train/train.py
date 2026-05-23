@@ -36,6 +36,8 @@ from vint_train.training.train_eval_loop import (
     load_model,
 )
 
+TRAIN_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _normalize_future_prediction_config(config):
     future_config = {
@@ -68,10 +70,145 @@ def _normalize_future_prediction_config(config):
     return future_config
 
 
+def _expand_path(path):
+    if path is None:
+        return None
+    path = os.path.expandvars(os.path.expanduser(str(path)))
+    if not os.path.isabs(path):
+        path = os.path.abspath(path)
+    return path
+
+
+def _processed_trajectory_names(data_folder):
+    data_folder = _expand_path(data_folder)
+    if not os.path.isdir(data_folder):
+        return []
+    return sorted(
+        entry
+        for entry in os.listdir(data_folder)
+        if os.path.isdir(os.path.join(data_folder, entry))
+        and os.path.isfile(os.path.join(data_folder, entry, "traj_data.pkl"))
+    )
+
+
+def _has_recon_hdf5_files(data_folder):
+    data_folder = _expand_path(data_folder)
+    candidate_folders = [data_folder, os.path.join(data_folder, "recon_release")]
+    for candidate_folder in candidate_folders:
+        if not os.path.isdir(candidate_folder):
+            continue
+        if any(
+            os.path.isfile(os.path.join(candidate_folder, entry))
+            and entry.lower().endswith((".h5", ".hdf5"))
+            for entry in os.listdir(candidate_folder)
+        ):
+            return True
+    return False
+
+
+def _maybe_process_recon_dataset(dataset_name, data_config):
+    if _processed_trajectory_names(data_config["data_folder"]):
+        return
+    if dataset_name != "recon" or not data_config.get("auto_process", False):
+        return
+
+    raw_data_folder = _expand_path(data_config.get("raw_data_folder", data_config["data_folder"]))
+    if not _has_recon_hdf5_files(raw_data_folder):
+        return
+
+    processed_data_folder = _expand_path(
+        data_config.get("processed_data_folder")
+        or os.path.join(os.path.dirname(raw_data_folder), "recon_processed")
+    )
+    if not _processed_trajectory_names(processed_data_folder):
+        print(
+            f"Processing raw RECON HDF5 data from {raw_data_folder} "
+            f"to {processed_data_folder}"
+        )
+        from process_recon import process_recon_directory
+
+        process_recon_directory(
+            raw_data_folder,
+            processed_data_folder,
+            num_trajs=int(data_config.get("num_trajs", -1)),
+        )
+
+    data_config["raw_data_folder"] = raw_data_folder
+    data_config["data_folder"] = processed_data_folder
+
+
+def _ensure_split_files(dataset_name, data_config, seed):
+    train_split_folder = _expand_path(data_config.get("train"))
+    test_split_folder = _expand_path(data_config.get("test"))
+    if train_split_folder is None or test_split_folder is None:
+        return
+
+    data_config["train"] = train_split_folder
+    data_config["test"] = test_split_folder
+    train_names_path = os.path.join(train_split_folder, "traj_names.txt")
+    test_names_path = os.path.join(test_split_folder, "traj_names.txt")
+    if os.path.isfile(train_names_path) and os.path.isfile(test_names_path):
+        return
+
+    if not data_config.get("auto_split", False):
+        missing = [
+            path
+            for path in [train_names_path, test_names_path]
+            if not os.path.isfile(path)
+        ]
+        raise FileNotFoundError(
+            "Missing data split file(s): " + ", ".join(missing)
+        )
+
+    traj_names = _processed_trajectory_names(data_config["data_folder"])
+    if len(traj_names) == 0:
+        raise FileNotFoundError(
+            f"No processed trajectories found in {data_config['data_folder']}. "
+            "Expected trajectory folders containing traj_data.pkl."
+        )
+
+    split_ratio = float(data_config.get("split", 0.8))
+    split_seed = int(data_config.get("split_seed", seed))
+    rng = np.random.default_rng(split_seed)
+    traj_names = list(traj_names)
+    rng.shuffle(traj_names)
+
+    if len(traj_names) == 1:
+        train_names = traj_names
+        test_names = traj_names
+    else:
+        split_index = int(split_ratio * len(traj_names))
+        split_index = min(max(split_index, 1), len(traj_names) - 1)
+        train_names = traj_names[:split_index]
+        test_names = traj_names[split_index:]
+
+    os.makedirs(train_split_folder, exist_ok=True)
+    os.makedirs(test_split_folder, exist_ok=True)
+    with open(train_names_path, "w") as f:
+        f.write("\n".join(train_names) + "\n")
+    with open(test_names_path, "w") as f:
+        f.write("\n".join(test_names) + "\n")
+    print(
+        f"Created {dataset_name} split: "
+        f"{len(train_names)} train / {len(test_names)} test trajectories"
+    )
+
+
+def _prepare_dataset_configs(config):
+    seed = int(config.get("seed", 0))
+    for dataset_name, data_config in config["datasets"].items():
+        for path_key in ["data_folder", "raw_data_folder", "processed_data_folder"]:
+            if path_key in data_config:
+                data_config[path_key] = _expand_path(data_config[path_key])
+        _maybe_process_recon_dataset(dataset_name, data_config)
+        _ensure_split_files(dataset_name, data_config, seed)
+
+
 def main(config):
     assert config["distance"]["min_dist_cat"] < config["distance"]["max_dist_cat"]
     assert config["action"]["min_dist_cat"] < config["action"]["max_dist_cat"]
     future_prediction_config = _normalize_future_prediction_config(config)
+    _prepare_dataset_configs(config)
 
     if torch.cuda.is_available():
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -163,7 +300,7 @@ def main(config):
         shuffle=True,
         num_workers=config["num_workers"],
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=config["num_workers"] > 0,
     )
 
     if "eval_batch_size" not in config:
@@ -407,6 +544,7 @@ def main(config):
 
 
 if __name__ == "__main__":
+    os.chdir(TRAIN_DIR)
     torch.multiprocessing.set_start_method("spawn")
 
     parser = argparse.ArgumentParser(description="Visual Navigation Transformer")
@@ -415,21 +553,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         "-c",
-        default="config/vint.yaml",
+        default="config/nomad.yaml",
         type=str,
         help="Path to the config file in train_config folder",
     )
     args = parser.parse_args()
+    config_path = _expand_path(args.config)
 
     with open("config/defaults.yaml", "r") as f:
         default_config = yaml.safe_load(f)
 
     config = default_config
 
-    with open(args.config, "r") as f:
+    with open(config_path, "r") as f:
         user_config = yaml.safe_load(f)
 
     config.update(user_config)
+    config["use_wandb"] = bool(config.get("use_wandb", True))
 
     config["run_name"] += "_" + time.strftime("%Y_%m_%d_%H_%M_%S")
     config["project_folder"] = os.path.join(
@@ -448,11 +588,14 @@ if __name__ == "__main__":
             settings=wandb.Settings(start_method="fork"),
             entity="gnmv2", # TODO: change this to your wandb entity
         )
-        wandb.save(args.config, policy="now")  # save the config file
+        wandb.save(config_path, policy="now")  # save the config file
         wandb.run.name = config["run_name"]
         # update the wandb args with the training configurations
         if wandb.run:
             wandb.config.update(config)
+    else:
+        os.environ.setdefault("WANDB_MODE", "disabled")
+        wandb.init(mode="disabled")
 
     print(config)
     main(config)

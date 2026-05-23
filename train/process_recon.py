@@ -7,9 +7,21 @@ import argparse
 import tqdm
 
 
-def main(args: argparse.Namespace):
-    recon_dir = os.path.join(args.input_dir, "recon_release")
-    output_dir = args.output_dir
+def resolve_recon_dir(input_dir: str) -> str:
+    input_dir = os.path.expanduser(input_dir)
+    nested_recon_dir = os.path.join(input_dir, "recon_release")
+    if os.path.isdir(nested_recon_dir):
+        return nested_recon_dir
+    return input_dir
+
+
+def process_recon_directory(
+    input_dir: str,
+    output_dir: str,
+    num_trajs: int = -1,
+):
+    recon_dir = resolve_recon_dir(input_dir)
+    output_dir = os.path.expanduser(output_dir)
 
     # create output dir if it doesn't exist
     if not os.path.exists(output_dir):
@@ -17,8 +29,8 @@ def main(args: argparse.Namespace):
 
     # get all the folders in the recon dataset
     filenames = os.listdir(recon_dir)
-    if args.num_trajs >= 0:
-        filenames = filenames[: args.num_trajs]
+    if num_trajs >= 0:
+        filenames = filenames[:num_trajs]
 
     # processing loop
     for filename in tqdm.tqdm(filenames, desc="Trajectories processed"):
@@ -26,26 +38,27 @@ def main(args: argparse.Namespace):
         traj_name = filename.split(".")[0]
         # load the hdf5 file
         try:
-            h5_f = h5py.File(os.path.join(recon_dir, filename), "r")
+            with h5py.File(os.path.join(recon_dir, filename), "r") as h5_f:
+                # extract the position and yaw data
+                position_data = h5_f["jackal"]["position"][:, :2]
+                yaw_data = h5_f["jackal"]["yaw"][()]
+                # save the data to a dictionary
+                traj_data = {"position": position_data, "yaw": yaw_data}
+                traj_folder = os.path.join(output_dir, traj_name)
+                os.makedirs(traj_folder, exist_ok=True)
+                with open(os.path.join(traj_folder, "traj_data.pkl"), "wb") as f:
+                    pickle.dump(traj_data, f)
+                # save the image data to disk
+                for i in range(h5_f["images"]["rgb_left"].shape[0]):
+                    img = Image.open(io.BytesIO(h5_f["images"]["rgb_left"][i]))
+                    img.save(os.path.join(traj_folder, f"{i}.jpg"))
         except OSError:
             print(f"Error loading {filename}. Skipping...")
             continue
-        # extract the position and yaw data
-        position_data = h5_f["jackal"]["position"][:, :2]
-        yaw_data = h5_f["jackal"]["yaw"][()]
-        # save the data to a dictionary
-        traj_data = {"position": position_data, "yaw": yaw_data}
-        traj_folder = os.path.join(output_dir, traj_name)
-        os.makedirs(traj_folder, exist_ok=True)
-        with open(os.path.join(traj_folder, "traj_data.pkl"), "wb") as f:
-            pickle.dump(traj_data, f)
-        # make a folder for the file
-        if not os.path.exists(traj_folder):
-            os.makedirs(traj_folder)
-        # save the image data to disk
-        for i in range(h5_f["images"]["rgb_left"].shape[0]):
-            img = Image.open(io.BytesIO(h5_f["images"]["rgb_left"][i]))
-            img.save(os.path.join(traj_folder, f"{i}.jpg"))
+
+
+def main(args: argparse.Namespace):
+    process_recon_directory(args.input_dir, args.output_dir, args.num_trajs)
 
 
 if __name__ == "__main__":
