@@ -135,6 +135,7 @@ class ViNT_Dataset(Dataset):
         self.dataset_index = dataset_names.index(self.dataset_name)
         self.data_config = all_data_config[self.dataset_name]
         self.trajectory_cache = {}
+        self.image_count_cache = {}
         self._load_index()
         self._build_caches()
         
@@ -150,6 +151,8 @@ class ViNT_Dataset(Dataset):
     
     def __setstate__(self, state):
         self.__dict__ = state
+        if "image_count_cache" not in self.__dict__:
+            self.image_count_cache = {}
         self._build_caches()
 
     def _build_caches(self, use_tqdm: bool = True):
@@ -250,7 +253,7 @@ class ViNT_Dataset(Dataset):
             future_suffix = f"_future_h{self.future_horizon}_s{self.future_spacing}"
         index_to_data_path = os.path.join(
             self.data_split_folder,
-            f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_{self.context_type}_n{self.context_size}_slack_{self.end_slack}{future_suffix}.pkl",
+            f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_{self.context_type}_n{self.context_size}_slack_{self.end_slack}{future_suffix}_imgsafe.pkl",
         )
         try:
             # load the index_to_data if it already exists (to save time)
@@ -270,11 +273,13 @@ class ViNT_Dataset(Dataset):
         try:
             with self._image_cache.begin() as txn:
                 image_buffer = txn.get(image_path.encode())
+                if image_buffer is None:
+                    return img_path_to_data(image_path, self.image_size)
                 image_bytes = bytes(image_buffer)
             image_bytes = io.BytesIO(image_bytes)
             return img_path_to_data(image_bytes, self.image_size)
         except TypeError:
-            print(f"Failed to load image {image_path}")
+            return img_path_to_data(image_path, self.image_size)
 
     def _compute_actions(self, traj_data, curr_time, goal_time):
         start_index = curr_time
@@ -313,12 +318,38 @@ class ViNT_Dataset(Dataset):
 
         return actions, goal_pos
     
+    def _get_image_count(self, trajectory_name):
+        if trajectory_name in self.image_count_cache:
+            return self.image_count_cache[trajectory_name]
+
+        traj_folder = os.path.join(self.data_folder, trajectory_name)
+        image_indices = []
+        for filename in os.listdir(traj_folder):
+            stem, ext = os.path.splitext(filename)
+            if ext.lower() == ".jpg" and stem.isdigit():
+                image_indices.append(int(stem))
+        image_indices = set(image_indices)
+
+        image_count = 0
+        while image_count in image_indices:
+            image_count += 1
+        self.image_count_cache[trajectory_name] = image_count
+        return image_count
+
     def _get_trajectory(self, trajectory_name):
         if trajectory_name in self.trajectory_cache:
             return self.trajectory_cache[trajectory_name]
         else:
             with open(os.path.join(self.data_folder, trajectory_name, "traj_data.pkl"), "rb") as f:
                 traj_data = pickle.load(f)
+            image_count = self._get_image_count(trajectory_name)
+            traj_len = min(
+                len(traj_data["position"]),
+                len(traj_data["yaw"]),
+                image_count,
+            )
+            traj_data["position"] = traj_data["position"][:traj_len]
+            traj_data["yaw"] = traj_data["yaw"][:traj_len]
             self.trajectory_cache[trajectory_name] = traj_data
             return traj_data
 

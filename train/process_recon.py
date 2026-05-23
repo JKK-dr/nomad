@@ -39,9 +39,10 @@ def process_recon_directory(
         # load the hdf5 file
         try:
             with h5py.File(os.path.join(recon_dir, filename), "r") as h5_f:
+                num_images = h5_f["images"]["rgb_left"].shape[0]
                 # extract the position and yaw data
-                position_data = h5_f["jackal"]["position"][:, :2]
-                yaw_data = h5_f["jackal"]["yaw"][()]
+                position_data = h5_f["jackal"]["position"][:num_images, :2]
+                yaw_data = h5_f["jackal"]["yaw"][()][:num_images]
                 # save the data to a dictionary
                 traj_data = {"position": position_data, "yaw": yaw_data}
                 traj_folder = os.path.join(output_dir, traj_name)
@@ -49,7 +50,7 @@ def process_recon_directory(
                 with open(os.path.join(traj_folder, "traj_data.pkl"), "wb") as f:
                     pickle.dump(traj_data, f)
                 # save the image data to disk
-                for i in range(h5_f["images"]["rgb_left"].shape[0]):
+                for i in range(num_images):
                     img = Image.open(io.BytesIO(h5_f["images"]["rgb_left"][i]))
                     img.save(os.path.join(traj_folder, f"{i}.jpg"))
         except OSError:
