@@ -49,6 +49,7 @@ future_prediction:
   loss_weight: 0.1
   predict_deltas: True # cumsum latent deltas from the current image encoding
   detach_anchor: True  # keep the current-image anchor fixed for this aux loss
+  target: from_current # from_current, action_horizon, or after_action_horizon
 
 # distance bounds for distance and action and distance predictions 
 distance:

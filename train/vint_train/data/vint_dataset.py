@@ -117,6 +117,22 @@ class ViNT_Dataset(Dataset):
         if self.future_spacing is None:
             self.future_spacing = self.waypoint_spacing
         self.future_spacing = int(self.future_spacing)
+        self.future_target = future_prediction.get("target", None)
+        if self.future_target is None:
+            self.future_target = (
+                "after_action_horizon"
+                if future_prediction.get("start_after_actions", False)
+                else "from_current"
+            )
+        action_reach = self.len_traj_pred * self.waypoint_spacing
+        if self.future_target == "from_current":
+            self.future_first_offset = self.future_spacing
+        elif self.future_target == "action_horizon":
+            self.future_first_offset = action_reach
+        elif self.future_target == "after_action_horizon":
+            self.future_first_offset = action_reach + self.future_spacing
+        else:
+            raise ValueError(f"Unsupported future_prediction.target: {self.future_target}")
         if self.future_prediction_enabled:
             assert self.future_horizon > 0, "future_prediction.horizon must be positive"
             assert self.future_spacing > 0, "future_prediction.spacing must be positive"
@@ -217,7 +233,7 @@ class ViNT_Dataset(Dataset):
             action_reach = self.len_traj_pred * self.waypoint_spacing
             future_reach = 0
             if self.future_prediction_enabled:
-                future_reach = self.future_horizon * self.future_spacing
+                future_reach = self.future_first_offset + (self.future_horizon - 1) * self.future_spacing
             end_time = traj_len - self.end_slack - max(action_reach, future_reach)
             for curr_time in range(begin_time, end_time):
                 max_goal_distance = min(self.max_dist_cat * self.waypoint_spacing, traj_len - curr_time - 1)
@@ -250,7 +266,10 @@ class ViNT_Dataset(Dataset):
         """
         future_suffix = ""
         if self.future_prediction_enabled:
-            future_suffix = f"_future_h{self.future_horizon}_s{self.future_spacing}"
+            future_suffix = (
+                f"_future_h{self.future_horizon}_s{self.future_spacing}"
+                f"_{self.future_target}"
+            )
         index_to_data_path = os.path.join(
             self.data_split_folder,
             f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_{self.context_type}_n{self.context_size}_slack_{self.end_slack}{future_suffix}_imgsafe.pkl",
@@ -395,7 +414,7 @@ class ViNT_Dataset(Dataset):
         future_image = None
         if self.future_prediction_enabled:
             future_times = [
-                curr_time + (future_idx + 1) * self.future_spacing
+                curr_time + self.future_first_offset + future_idx * self.future_spacing
                 for future_idx in range(self.future_horizon)
             ]
             future_image = torch.cat([

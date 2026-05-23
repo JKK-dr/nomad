@@ -50,8 +50,16 @@ def _normalize_future_prediction_config(config):
         "loss_weight": 0.1,
         "predict_deltas": True,
         "detach_anchor": True,
+        "start_after_actions": False,
+        "target": None,
     }
     future_config.update(config.get("future_prediction") or {})
+    if future_config["target"] is None:
+        future_config["target"] = (
+            "after_action_horizon"
+            if future_config["start_after_actions"]
+            else "from_current"
+        )
     future_config["enabled"] = bool(future_config["enabled"])
     future_config["horizon"] = int(future_config["horizon"])
     if future_config["spacing"] is not None:
@@ -61,6 +69,8 @@ def _normalize_future_prediction_config(config):
     future_config["loss_weight"] = float(future_config["loss_weight"])
     future_config["predict_deltas"] = bool(future_config["predict_deltas"])
     future_config["detach_anchor"] = bool(future_config["detach_anchor"])
+    future_config["start_after_actions"] = bool(future_config["start_after_actions"])
+    future_config["target"] = str(future_config["target"])
     if future_config["enabled"]:
         assert future_config["horizon"] > 0
         assert future_config["loss_weight"] >= 0
@@ -68,6 +78,11 @@ def _normalize_future_prediction_config(config):
             assert future_config["spacing"] > 0
         if future_config["encoding_size"] is not None:
             assert future_config["encoding_size"] > 0
+        assert future_config["target"] in {
+            "from_current",
+            "action_horizon",
+            "after_action_horizon",
+        }, f"Unsupported future_prediction.target: {future_config['target']}"
     config["future_prediction"] = future_config
     return future_config
 
@@ -79,6 +94,67 @@ def _expand_path(path):
     if not os.path.isabs(path):
         path = os.path.abspath(path)
     return path
+
+
+def _parse_override_value(value):
+    parsed_value = yaml.safe_load(value)
+    return parsed_value
+
+
+def _apply_config_override(config, override):
+    if "=" not in override:
+        raise ValueError(f"Invalid override '{override}'. Expected key=value.")
+    key_path, value = override.split("=", 1)
+    keys = [key.strip() for key in key_path.split(".") if key.strip()]
+    if len(keys) == 0:
+        raise ValueError(f"Invalid override key in '{override}'.")
+
+    cursor = config
+    for key in keys[:-1]:
+        if key not in cursor or cursor[key] is None:
+            cursor[key] = {}
+        if not isinstance(cursor[key], dict):
+            raise ValueError(
+                f"Cannot set nested override '{override}' because '{key}' is not a mapping."
+            )
+        cursor = cursor[key]
+    cursor[keys[-1]] = _parse_override_value(value)
+
+
+def _apply_cli_overrides(config, args):
+    for override in args.override:
+        _apply_config_override(config, override)
+
+    if args.batch_size is not None:
+        config["batch_size"] = args.batch_size
+    if args.eval_batch_size is not None:
+        config["eval_batch_size"] = args.eval_batch_size
+    if args.num_workers is not None:
+        config["num_workers"] = args.num_workers
+    if args.epochs is not None:
+        config["epochs"] = args.epochs
+
+    if (
+        args.enable_future_prediction
+        or args.disable_future_prediction
+        or args.future_horizon is not None
+        or args.future_target is not None
+        or args.future_after_actions
+        or args.future_from_current
+    ):
+        future_config = config.setdefault("future_prediction", {})
+        if args.enable_future_prediction:
+            future_config["enabled"] = True
+        if args.disable_future_prediction:
+            future_config["enabled"] = False
+        if args.future_horizon is not None:
+            future_config["horizon"] = args.future_horizon
+        if args.future_target is not None:
+            future_config["target"] = args.future_target
+        if args.future_after_actions:
+            future_config["target"] = "after_action_horizon"
+        if args.future_from_current:
+            future_config["target"] = "from_current"
 
 
 def _processed_trajectory_names(data_folder):
@@ -560,6 +636,77 @@ if __name__ == "__main__":
         type=str,
         help="Path to the config file in train_config folder",
     )
+    future_group = parser.add_mutually_exclusive_group()
+    future_group.add_argument(
+        "--enable-future-prediction",
+        action="store_true",
+        help="Enable the future_prediction auxiliary branch from the command line.",
+    )
+    future_group.add_argument(
+        "--disable-future-prediction",
+        action="store_true",
+        help="Disable the future_prediction auxiliary branch from the command line.",
+    )
+    parser.add_argument(
+        "--future-horizon",
+        type=int,
+        default=None,
+        help="Override future_prediction.horizon.",
+    )
+    parser.add_argument(
+        "--future-target",
+        choices=["from_current", "action_horizon", "after_action_horizon"],
+        default=None,
+        help=(
+            "Override which future frame to supervise. "
+            "after_action_horizon means the first frame after all predicted actions."
+        ),
+    )
+    future_start_group = parser.add_mutually_exclusive_group()
+    future_start_group.add_argument(
+        "--future-after-actions",
+        action="store_true",
+        help="Start future image supervision after the predicted action horizon.",
+    )
+    future_start_group.add_argument(
+        "--future-from-current",
+        action="store_true",
+        help="Start future image supervision immediately after the current observation.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override batch_size.",
+    )
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=None,
+        help="Override eval_batch_size.",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="Override num_workers.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override epochs.",
+    )
+    parser.add_argument(
+        "--override",
+        "-o",
+        action="append",
+        default=[],
+        help=(
+            "Override any config value with dot notation, e.g. "
+            "-o future_prediction.enabled=false -o datasets.recon.max_train_trajs=100"
+        ),
+    )
     args = parser.parse_args()
     config_path = _expand_path(args.config)
 
@@ -572,6 +719,7 @@ if __name__ == "__main__":
         user_config = yaml.safe_load(f)
 
     config.update(user_config)
+    _apply_cli_overrides(config, args)
     config["use_wandb"] = bool(config.get("use_wandb", True))
 
     config["run_name"] += "_" + time.strftime("%Y_%m_%d_%H_%M_%S")

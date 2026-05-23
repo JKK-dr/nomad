@@ -656,12 +656,12 @@ def _compute_losses_nomad(
         "gc_multi_action_waypts_cos_sim": gc_multi_action_waypts_cos_sim,
     }
     if _model_has_future_prediction(ema_model) and batch_future_images is not None:
-        no_mask = torch.zeros((batch_goal_images.shape[0],)).long().to(device)
-        obsgoal_cond = ema_model(
+        future_goal_mask = torch.ones((batch_goal_images.shape[0],)).long().to(device)
+        future_cond = ema_model(
             "vision_encoder",
             obs_img=batch_obs_images,
             goal_img=batch_goal_images,
-            input_goal_mask=no_mask,
+            input_goal_mask=future_goal_mask,
         )
         future_anchor = ema_model(
             "current_obs_encoder",
@@ -669,7 +669,7 @@ def _compute_losses_nomad(
         )
         future_encoding_pred = ema_model(
             "future_pred_net",
-            obsgoal_cond=obsgoal_cond,
+            obsgoal_cond=future_cond,
             anchor=future_anchor,
         )
         results["future_loss"] = _compute_future_loss(
@@ -795,9 +795,17 @@ def train_nomad(
             if use_future_prediction:
                 if batch_future_images is None:
                     raise ValueError("future_prediction is enabled, but the dataset did not return future images")
+                # Keep future prediction conditioned on the current trajectory, not sampled/negative goals.
+                future_goal_mask = torch.ones((B,)).long().to(device)
+                future_cond = model(
+                    "vision_encoder",
+                    obs_img=batch_obs_images,
+                    goal_img=batch_goal_images,
+                    input_goal_mask=future_goal_mask,
+                )
                 future_encoding_pred = model(
                     "future_pred_net",
-                    obsgoal_cond=obsgoal_cond,
+                    obsgoal_cond=future_cond,
                     anchor=model(
                         "current_obs_encoder",
                         obs_img=batch_obs_images,
@@ -1106,7 +1114,7 @@ def evaluate_nomad(
                     raise ValueError("future_prediction is enabled, but the dataset did not return future images")
                 future_encoding_pred = ema_model(
                     "future_pred_net",
-                    obsgoal_cond=obsgoal_cond,
+                    obsgoal_cond=goal_mask_cond,
                     anchor=ema_model(
                         "current_obs_encoder",
                         obs_img=batch_obs_images,

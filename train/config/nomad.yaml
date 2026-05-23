@@ -69,6 +69,7 @@ future_prediction:
   loss_weight: 0.1
   predict_deltas: True
   detach_anchor: True
+  target: after_action_horizon # first future frame after len_traj_pred actions
 
 datasets:
   recon:
