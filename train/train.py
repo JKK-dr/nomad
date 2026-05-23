@@ -282,6 +282,7 @@ def main(config):
                         normalize=config["normalize"],
                         goal_type=config["goal_type"],
                         future_prediction=future_prediction_config,
+                        max_trajs=data_config.get(f"max_{data_split_type}_trajs"),
                     )
                     if data_split_type == "train":
                         train_dataset.append(dataset)

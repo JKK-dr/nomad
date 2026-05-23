@@ -5,7 +5,11 @@ import yaml
 from typing import Any, Dict, List, Optional, Tuple
 import tqdm
 import io
-import lmdb
+
+try:
+    import lmdb
+except Exception:
+    lmdb = None
 
 import torch
 from torch.utils.data import Dataset
@@ -41,6 +45,7 @@ class ViNT_Dataset(Dataset):
         obs_type: str = "image",
         goal_type: str = "image",
         future_prediction: Optional[Dict[str, Any]] = None,
+        max_trajs: Optional[int] = None,
     ):
         """
         Main ViNT dataset class
@@ -72,6 +77,10 @@ class ViNT_Dataset(Dataset):
             self.traj_names = file_lines.split("\n")
         if "" in self.traj_names:
             self.traj_names.remove("")
+        if max_trajs is not None:
+            max_trajs = int(max_trajs)
+            if max_trajs > 0:
+                self.traj_names = self.traj_names[:max_trajs]
 
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing
@@ -147,6 +156,13 @@ class ViNT_Dataset(Dataset):
         """
         Build a cache of images for faster loading using LMDB
         """
+        self._image_cache = None
+        if lmdb is None:
+            for traj_name in self.traj_names:
+                self._get_trajectory(traj_name)
+            print("LMDB is unavailable; loading images directly from disk.")
+            return
+
         cache_filename = os.path.join(
             self.data_split_folder,
             f"dataset_{self.dataset_name}.lmdb",
@@ -159,22 +175,26 @@ class ViNT_Dataset(Dataset):
         """
         If the cache file doesn't exist, create it by iterating through the dataset and writing each image to the cache
         """
-        if not os.path.exists(cache_filename):
-            tqdm_iterator = tqdm.tqdm(
-                self.goals_index,
-                disable=not use_tqdm,
-                dynamic_ncols=True,
-                desc=f"Building LMDB cache for {self.dataset_name}"
-            )
-            with lmdb.open(cache_filename, map_size=2**40) as image_cache:
-                with image_cache.begin(write=True) as txn:
-                    for traj_name, time in tqdm_iterator:
-                        image_path = get_data_path(self.data_folder, traj_name, time)
-                        with open(image_path, "rb") as f:
-                            txn.put(image_path.encode(), f.read())
+        try:
+            if not os.path.exists(cache_filename):
+                tqdm_iterator = tqdm.tqdm(
+                    self.goals_index,
+                    disable=not use_tqdm,
+                    dynamic_ncols=True,
+                    desc=f"Building LMDB cache for {self.dataset_name}"
+                )
+                with lmdb.open(cache_filename, map_size=2**40) as image_cache:
+                    with image_cache.begin(write=True) as txn:
+                        for traj_name, time in tqdm_iterator:
+                            image_path = get_data_path(self.data_folder, traj_name, time)
+                            with open(image_path, "rb") as f:
+                                txn.put(image_path.encode(), f.read())
 
-        # Reopen the cache file in read-only mode
-        self._image_cache: lmdb.Environment = lmdb.open(cache_filename, readonly=True)
+            # Reopen the cache file in read-only mode
+            self._image_cache = lmdb.open(cache_filename, readonly=True)
+        except Exception as exc:
+            self._image_cache = None
+            print(f"LMDB cache is unavailable ({exc}); loading images directly from disk.")
 
     def _build_index(self, use_tqdm: bool = False):
         """
@@ -244,6 +264,8 @@ class ViNT_Dataset(Dataset):
 
     def _load_image(self, trajectory_name, time):
         image_path = get_data_path(self.data_folder, trajectory_name, time)
+        if self._image_cache is None:
+            return img_path_to_data(image_path, self.image_size)
 
         try:
             with self._image_cache.begin() as txn:

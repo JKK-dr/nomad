@@ -23,7 +23,7 @@ dependencies:
   - efficientnet-pytorch
   - warmup-scheduler
   - diffusers==0.11.1
-  - lmdb 
+  - huggingface-hub==0.13.4
   - vit-pytorch
   - positional-encodings
 

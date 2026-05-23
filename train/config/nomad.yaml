@@ -77,6 +77,9 @@ datasets:
     auto_split: True
     split: 0.8
     split_seed: 0
+    # Uncomment to load fewer trajectories while debugging.
+    # max_train_trajs: 100
+    # max_test_trajs: 20
     train: vint_train/data/data_splits/recon/train/ # created automatically if missing
     test: vint_train/data/data_splits/recon/test/ # created automatically if missing
     end_slack: 3 # because many trajectories end in collisions
