@@ -1329,6 +1329,20 @@ def visualize_diffusion_action_distribution(
 ):
     """Plot samples from the exploration model."""
 
+    if num_images_log <= 0 or num_samples <= 0:
+        return
+
+    max_batch_size = batch_obs_images.shape[0]
+    num_images_log = min(
+        num_images_log,
+        batch_obs_images.shape[0],
+        batch_goal_images.shape[0],
+        batch_action_label.shape[0],
+        batch_goal_pos.shape[0],
+    )
+    if num_images_log <= 0 or max_batch_size <= 0:
+        return
+
     visualize_path = os.path.join(
         project_folder,
         "visualize",
@@ -1339,9 +1353,6 @@ def visualize_diffusion_action_distribution(
     if not os.path.isdir(visualize_path):
         os.makedirs(visualize_path)
 
-    max_batch_size = batch_obs_images.shape[0]
-
-    num_images_log = min(num_images_log, batch_obs_images.shape[0], batch_goal_images.shape[0], batch_action_label.shape[0], batch_goal_pos.shape[0])
     batch_obs_images = batch_obs_images[:num_images_log]
     batch_goal_images = batch_goal_images[:num_images_log]
     batch_action_label = batch_action_label[:num_images_log]
