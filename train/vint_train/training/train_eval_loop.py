@@ -16,6 +16,7 @@ from torchvision import transforms
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from vint_train.wandb_utils import wandb
+from vint_train.training.logger import append_metrics_to_csv
 
 def train_eval_loop(
     train_model: bool,
@@ -135,6 +136,15 @@ def train_eval_loop(
                 scheduler.step(np.mean(avg_total_test_loss))
             else:
                 scheduler.step()
+        append_metrics_to_csv(
+            project_folder=project_folder,
+            phase="epoch",
+            dataset="all",
+            epoch=epoch,
+            batch=-1,
+            lr=optimizer.param_groups[0]["lr"],
+            metrics={"avg_total_test_loss": np.mean(avg_total_test_loss)},
+        )
         if use_wandb:
             wandb.log({
                 "avg_total_test_loss": np.mean(avg_total_test_loss),
@@ -279,6 +289,16 @@ def train_eval_loop_nomad(
 
         if lr_scheduler is not None:
             lr_scheduler.step()
+
+        append_metrics_to_csv(
+            project_folder=project_folder,
+            phase="epoch",
+            dataset="all",
+            epoch=epoch,
+            batch=-1,
+            lr=optimizer.param_groups[0]["lr"],
+            metrics={"lr": optimizer.param_groups[0]["lr"]},
+        )
 
         # log average eval loss
         if use_wandb:

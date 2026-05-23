@@ -9,7 +9,7 @@ import itertools
 from vint_train.visualizing.action_utils import visualize_traj_pred, plot_trajs_and_points
 from vint_train.visualizing.distance_utils import visualize_dist_pred
 from vint_train.visualizing.visualize_utils import to_numpy, from_numpy
-from vint_train.training.logger import Logger
+from vint_train.training.logger import Logger, append_metrics_to_csv
 from vint_train.data.data_utils import VISUALIZATION_IMAGE_SIZE
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
@@ -371,6 +371,16 @@ def train(
             future_loss_weight=future_loss_weight,
         )
 
+        append_metrics_to_csv(
+            project_folder=project_folder,
+            phase="train",
+            dataset="train",
+            epoch=epoch,
+            batch=i,
+            lr=optimizer.param_groups[0]["lr"],
+            metrics=losses,
+        )
+
         losses["total_loss"].backward()
         optimizer.step()
 
@@ -526,6 +536,15 @@ def evaluate(
                 action_mask=action_mask,
                 future_loss=future_loss,
                 future_loss_weight=future_loss_weight,
+            )
+
+            append_metrics_to_csv(
+                project_folder=project_folder,
+                phase="eval",
+                dataset=eval_type,
+                epoch=epoch,
+                batch=i,
+                metrics=losses,
             )
 
             for key, value in losses.items():
@@ -832,6 +851,22 @@ def train_nomad(
             # Logging
             loss_cpu = loss.item()
             tepoch.set_postfix(loss=loss_cpu)
+            csv_metrics = {
+                "total_loss": loss_cpu,
+                "dist_loss": dist_loss,
+                "diffusion_loss": diffusion_loss,
+            }
+            if future_loss is not None:
+                csv_metrics["future_loss"] = future_loss
+            append_metrics_to_csv(
+                project_folder=project_folder,
+                phase="train",
+                dataset="train",
+                epoch=epoch,
+                batch=i,
+                lr=optimizer.param_groups[0]["lr"],
+                metrics=csv_metrics,
+            )
             if use_wandb:
                 wandb.log({"total_loss": loss_cpu})
                 wandb.log({"dist_loss": dist_loss.item()})
@@ -863,6 +898,16 @@ def train_nomad(
                     data_log[logger.full_name()] = logger.latest()
                     if i % print_log_freq == 0 and print_log_freq != 0:
                         print(f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}")
+
+                append_metrics_to_csv(
+                    project_folder=project_folder,
+                    phase="train_summary",
+                    dataset="train",
+                    epoch=epoch,
+                    batch=i,
+                    lr=optimizer.param_groups[0]["lr"],
+                    metrics={key: logger.latest() for key, logger in loggers.items()},
+                )
 
                 if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
                     wandb.log(data_log, commit=True)
@@ -1047,6 +1092,11 @@ def evaluate_nomad(
             loss_cpu = rand_mask_loss.item()
             tepoch.set_postfix(loss=loss_cpu)
 
+            csv_metrics = {
+                "diffusion_eval_loss_random_masking": rand_mask_loss,
+                "diffusion_eval_loss_no_masking": no_mask_loss,
+                "diffusion_eval_loss_goal_masking": goal_mask_loss,
+            }
             if use_wandb:
                 wandb.log({"diffusion_eval_loss (random masking)": rand_mask_loss})
                 wandb.log({"diffusion_eval_loss (no masking)": no_mask_loss})
@@ -1067,8 +1117,18 @@ def evaluate_nomad(
                     batch_future_images,
                     future_encoding_pred,
                 )
+                csv_metrics["future_loss"] = future_loss
                 if use_wandb:
                     wandb.log({f"{eval_type}_future_loss": future_loss.item()})
+
+            append_metrics_to_csv(
+                project_folder=project_folder,
+                phase="eval",
+                dataset=eval_type,
+                epoch=epoch,
+                batch=i,
+                metrics=csv_metrics,
+            )
 
             if i % print_log_freq == 0 and print_log_freq != 0:
                 losses = _compute_losses_nomad(
@@ -1093,6 +1153,15 @@ def evaluate_nomad(
                     data_log[logger.full_name()] = logger.latest()
                     if i % print_log_freq == 0 and print_log_freq != 0:
                         print(f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}")
+
+                append_metrics_to_csv(
+                    project_folder=project_folder,
+                    phase="eval_summary",
+                    dataset=eval_type,
+                    epoch=epoch,
+                    batch=i,
+                    metrics={key: logger.latest() for key, logger in loggers.items()},
+                )
 
                 if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
                     wandb.log(data_log, commit=True)

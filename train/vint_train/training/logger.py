@@ -1,4 +1,75 @@
 import numpy as np
+import csv
+import os
+import time
+
+
+def _to_float(value):
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "item"):
+        value = value.item()
+    return float(value)
+
+
+def append_metrics_to_csv(
+    project_folder: str,
+    phase: str,
+    dataset: str,
+    epoch: int,
+    batch: int,
+    metrics: dict,
+    lr: float = None,
+):
+    os.makedirs(project_folder, exist_ok=True)
+    csv_path = os.path.join(project_folder, "metrics.csv")
+    write_header = not os.path.exists(csv_path)
+    project_name = os.path.basename(os.path.dirname(project_folder))
+    run_name = os.path.basename(project_folder)
+    fieldnames = [
+        "timestamp",
+        "project_name",
+        "run_name",
+        "phase",
+        "dataset",
+        "epoch",
+        "batch",
+        "lr",
+        "metric",
+        "value",
+    ]
+
+    rows = []
+    for metric, value in metrics.items():
+        try:
+            value = _to_float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isnan(value):
+            continue
+        rows.append({
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "project_name": project_name,
+            "run_name": run_name,
+            "phase": phase,
+            "dataset": dataset,
+            "epoch": epoch,
+            "batch": batch,
+            "lr": "" if lr is None else lr,
+            "metric": metric,
+            "value": value,
+        })
+
+    if len(rows) == 0:
+        return
+
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
 
 
 class Logger:
