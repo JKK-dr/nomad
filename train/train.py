@@ -5,6 +5,8 @@ import yaml
 import time
 import pdb
 
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, ConcatDataset
