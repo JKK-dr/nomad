@@ -40,6 +40,7 @@ def train_eval_loop(
     learn_angle: bool = True,
     use_wandb: bool = True,
     eval_fraction: float = 0.25,
+    eval_freq: int = 1,
 ):
     """
     Train and evaluate the model for several epochs (vint or gnm models)
@@ -65,9 +66,11 @@ def train_eval_loop(
         learn_angle: whether to learn the angle or not
         use_wandb: whether to log to wandb or not
         eval_fraction: fraction of training data to use for evaluation
+        eval_freq: frequency of evaluation
     """
     assert 0 <= alpha <= 1
     latest_path = os.path.join(project_folder, f"latest.pth")
+    last_avg_total_test_loss = np.nan
 
     for epoch in range(current_epoch, current_epoch + epochs):
         if train_model:
@@ -94,36 +97,39 @@ def train_eval_loop(
             )
 
         avg_total_test_loss = []
-        for dataset_type in test_dataloaders:
-            print(
-                f"Start {dataset_type} ViNT Testing Epoch {epoch}/{current_epoch + epochs - 1}"
-            )
-            loader = test_dataloaders[dataset_type]
+        should_eval = eval_freq > 0 and (epoch + 1) % eval_freq == 0
+        if should_eval:
+            for dataset_type in test_dataloaders:
+                print(
+                    f"Start {dataset_type} ViNT Testing Epoch {epoch}/{current_epoch + epochs - 1}"
+                )
+                loader = test_dataloaders[dataset_type]
 
-            test_dist_loss, test_action_loss, total_eval_loss = evaluate(
-                eval_type=dataset_type,
-                model=model,
-                dataloader=loader,
-                transform=transform,
-                device=device,
-                project_folder=project_folder,
-                normalized=normalized,
-                epoch=epoch,
-                alpha=alpha,
-                future_loss_weight=future_loss_weight,
-                learn_angle=learn_angle,
-                num_images_log=num_images_log,
-                use_wandb=use_wandb,
-                eval_fraction=eval_fraction,
-            )
+                test_dist_loss, test_action_loss, total_eval_loss = evaluate(
+                    eval_type=dataset_type,
+                    model=model,
+                    dataloader=loader,
+                    transform=transform,
+                    device=device,
+                    project_folder=project_folder,
+                    normalized=normalized,
+                    epoch=epoch,
+                    alpha=alpha,
+                    future_loss_weight=future_loss_weight,
+                    learn_angle=learn_angle,
+                    num_images_log=num_images_log,
+                    use_wandb=use_wandb,
+                    eval_fraction=eval_fraction,
+                )
 
-            avg_total_test_loss.append(total_eval_loss)
+                avg_total_test_loss.append(total_eval_loss)
+            last_avg_total_test_loss = np.mean(avg_total_test_loss)
 
         checkpoint = {
             "epoch": epoch,
             "model": model,
             "optimizer": optimizer,
-            "avg_total_test_loss": np.mean(avg_total_test_loss),
+            "avg_total_test_loss": last_avg_total_test_loss,
             "scheduler": scheduler
         }
         # log average eval loss
@@ -133,21 +139,23 @@ def train_eval_loop(
         if scheduler is not None:
             # scheduler calls based on the type of scheduler
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step(np.mean(avg_total_test_loss))
+                if should_eval:
+                    scheduler.step(last_avg_total_test_loss)
             else:
                 scheduler.step()
-        append_metrics_to_csv(
-            project_folder=project_folder,
-            phase="epoch",
-            dataset="all",
-            epoch=epoch,
-            batch=-1,
-            lr=optimizer.param_groups[0]["lr"],
-            metrics={"avg_total_test_loss": np.mean(avg_total_test_loss)},
-        )
-        if use_wandb:
+        if should_eval:
+            append_metrics_to_csv(
+                project_folder=project_folder,
+                phase="eval_epoch",
+                dataset="all",
+                epoch=epoch,
+                batch=-1,
+                lr=optimizer.param_groups[0]["lr"],
+                metrics={"avg_total_test_loss": last_avg_total_test_loss},
+            )
+        if use_wandb and should_eval:
             wandb.log({
-                "avg_total_test_loss": np.mean(avg_total_test_loss),
+                "avg_total_test_loss": last_avg_total_test_loss,
                 "lr": optimizer.param_groups[0]["lr"],
             }, commit=False)
 

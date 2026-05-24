@@ -125,4 +125,4 @@ num_images_log: 8 #0
 pairwise_test_freq: 0 # in epochs
 eval_fraction: 0.25
 wandb_log_freq: 10 # in iterations
-eval_freq: 1 # in epochs
+eval_freq: 5 # in epochs

@@ -14,6 +14,12 @@ def _to_float(value):
     return float(value)
 
 
+def _metrics_csv_path(project_folder: str, phase: str, epoch: int) -> str:
+    if phase.startswith("eval"):
+        return os.path.join(project_folder, f"test_metrics_epoch_{epoch}.csv")
+    return os.path.join(project_folder, f"metrics_epoch_{epoch}.csv")
+
+
 def append_metrics_to_csv(
     project_folder: str,
     phase: str,
@@ -22,9 +28,10 @@ def append_metrics_to_csv(
     batch: int,
     metrics: dict,
     lr: float = None,
+    rounding: int = 4,
 ):
     os.makedirs(project_folder, exist_ok=True)
-    csv_path = os.path.join(project_folder, "metrics.csv")
+    csv_path = _metrics_csv_path(project_folder, phase, epoch)
     write_header = not os.path.exists(csv_path)
     project_name = os.path.basename(os.path.dirname(project_folder))
     run_name = os.path.basename(project_folder)
@@ -59,7 +66,7 @@ def append_metrics_to_csv(
             "batch": batch,
             "lr": "" if lr is None else lr,
             "metric": metric,
-            "value": value,
+            "value": f"{value:.{rounding}f}",
         })
 
     if len(rows) == 0:
@@ -94,9 +101,9 @@ class Logger:
         self.window_size = window_size
 
     def display(self) -> str:
-        latest = round(self.latest(), self.rounding)
-        average = round(self.average(), self.rounding)
-        moving_average = round(self.moving_average(), self.rounding)
+        latest = f"{self.latest():.{self.rounding}f}"
+        average = f"{self.average():.{self.rounding}f}"
+        moving_average = f"{self.moving_average():.{self.rounding}f}"
         output = f"{self.full_name()}: {latest} ({self.window_size}pt moving_avg: {moving_average}) (avg: {average})"
         return output
 

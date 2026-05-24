@@ -592,6 +592,7 @@ def main(config):
             future_loss_weight=future_prediction_config["loss_weight"],
             use_wandb=config["use_wandb"],
             eval_fraction=config["eval_fraction"],
+            eval_freq=config["eval_freq"],
         )
     else:
         train_eval_loop_nomad(
