@@ -64,7 +64,7 @@ def append_metrics_to_csv(
             "dataset": dataset,
             "epoch": epoch,
             "batch": batch,
-            "lr": "" if lr is None else lr,
+            "lr": "" if lr is None else f"{lr:.{rounding}f}",
             "metric": metric,
             "value": f"{value:.{rounding}f}",
         })

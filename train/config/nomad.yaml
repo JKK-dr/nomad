@@ -1,5 +1,5 @@
-project_name: nomad_recon_future
-run_name: nomad_recon_future
+project_name: nomad_recon_no_future
+run_name: nomad_recon_no_future
 
 # training setup
 use_wandb: False # set to true if you want to log to wandb
@@ -62,7 +62,7 @@ learn_angle: False
 # dataset specific parameters
 image_size: [96, 96] # width, height
 future_prediction:
-  enabled: True
+  enabled: False
   horizon: 1
   spacing: null
   encoding_size: 128

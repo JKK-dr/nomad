@@ -296,9 +296,6 @@ def train_eval_loop_nomad(
                 "lr": optimizer.param_groups[0]["lr"],
             }, commit=False)
 
-        if lr_scheduler is not None:
-            lr_scheduler.step()
-
         append_metrics_to_csv(
             project_folder=project_folder,
             phase="epoch",
